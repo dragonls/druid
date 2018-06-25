@@ -23,7 +23,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.druid.indexing.common.TaskLock;
 import io.druid.indexing.common.TaskLockType;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.actions.LockAcquireAction;
 import io.druid.indexing.common.actions.LockListAction;
@@ -48,11 +48,6 @@ public class RealtimeishTask extends AbstractTask
     super("rt1", "rt", new TaskResource("rt1", 1), "foo", null);
   }
 
-  public RealtimeishTask(String id, String groupId, TaskResource taskResource, String dataSource)
-  {
-    super(id, groupId, taskResource, dataSource, null);
-  }
-
   @Override
   public String getType()
   {
@@ -60,7 +55,7 @@ public class RealtimeishTask extends AbstractTask
   }
 
   @Override
-  public boolean isReady(TaskActionClient taskActionClient) throws Exception
+  public boolean isReady(TaskActionClient taskActionClient)
   {
     return true;
   }

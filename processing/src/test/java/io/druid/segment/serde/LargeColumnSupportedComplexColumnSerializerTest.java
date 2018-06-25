@@ -21,22 +21,24 @@ package io.druid.segment.serde;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.google.common.primitives.Longs;
 import io.druid.hll.HyperLogLogCollector;
 import io.druid.java.util.common.io.smoosh.FileSmoosher;
 import io.druid.java.util.common.io.smoosh.Smoosh;
 import io.druid.java.util.common.io.smoosh.SmooshedFileMapper;
 import io.druid.java.util.common.io.smoosh.SmooshedWriter;
-import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMedium;
-import io.druid.segment.writeout.SegmentWriteOutMedium;
+import io.druid.query.monomorphicprocessing.RuntimeShapeInspector;
+import io.druid.segment.ObjectColumnSelector;
 import io.druid.segment.column.Column;
 import io.druid.segment.column.ColumnBuilder;
 import io.druid.segment.column.ComplexColumn;
 import io.druid.segment.column.ValueType;
+import io.druid.segment.writeout.OffHeapMemorySegmentWriteOutMedium;
+import io.druid.segment.writeout.SegmentWriteOutMedium;
 import org.apache.commons.io.FileUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
+import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 
@@ -52,8 +54,11 @@ public class LargeColumnSupportedComplexColumnSerializerTest
     HyperUniquesSerdeForTest serde = new HyperUniquesSerdeForTest(Hashing.murmur3_128());
     int[] cases = {1000, 5000, 10000, 20000};
     int[] columnSizes = {
-        Integer.MAX_VALUE, Integer.MAX_VALUE / 2, Integer.MAX_VALUE / 4, 5000 * Longs.BYTES,
-        2500 * Longs.BYTES
+        Integer.MAX_VALUE,
+        Integer.MAX_VALUE / 2,
+        Integer.MAX_VALUE / 4,
+        5000 * Long.BYTES,
+        2500 * Long.BYTES
     };
 
     for (int columnSize : columnSizes) {
@@ -72,7 +77,27 @@ public class LargeColumnSupportedComplexColumnSerializerTest
             byte[] hashBytes = fn.hashLong(i).asBytes();
             collector.add(hashBytes);
             baseCollector.fold(collector);
-            serializer.serialize(collector);
+            serializer.serialize(new ObjectColumnSelector()
+            {
+              @Nullable
+              @Override
+              public Object getObject()
+              {
+                return collector;
+              }
+
+              @Override
+              public Class classOfObject()
+              {
+                return HyperLogLogCollector.class;
+              }
+
+              @Override
+              public void inspectRuntimeShape(RuntimeShapeInspector inspector)
+              {
+                // doesn't matter in tests
+              }
+            });
           }
 
           try (final SmooshedWriter channel = v9Smoosher.addWithSmooshedWriter(

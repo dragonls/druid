@@ -30,10 +30,6 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.metamx.emitter.EmittingLogger;
-import com.metamx.emitter.core.NoopEmitter;
-import com.metamx.emitter.service.ServiceEmitter;
-import com.metamx.metrics.MonitorScheduler;
 import io.druid.client.cache.CacheConfig;
 import io.druid.client.cache.MapCache;
 import io.druid.data.input.Firehose;
@@ -49,7 +45,7 @@ import io.druid.discovery.DruidNodeAnnouncer;
 import io.druid.discovery.LookupNodeService;
 import io.druid.indexer.TaskState;
 import io.druid.indexing.common.SegmentLoaderFactory;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.TaskToolboxFactory;
 import io.druid.indexing.common.TestUtils;
@@ -77,6 +73,10 @@ import io.druid.java.util.common.granularity.Granularities;
 import io.druid.java.util.common.jackson.JacksonUtils;
 import io.druid.java.util.common.logger.Logger;
 import io.druid.java.util.common.parsers.ParseException;
+import io.druid.java.util.emitter.EmittingLogger;
+import io.druid.java.util.emitter.core.NoopEmitter;
+import io.druid.java.util.emitter.service.ServiceEmitter;
+import io.druid.java.util.metrics.MonitorScheduler;
 import io.druid.math.expr.ExprMacroTable;
 import io.druid.metadata.EntryExistsException;
 import io.druid.query.DefaultQueryRunnerFactoryConglomerate;
@@ -128,13 +128,11 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.internal.matchers.ThrowableCauseMatcher;
 import org.junit.internal.matchers.ThrowableMessageMatcher;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -211,7 +209,7 @@ public class RealtimeIndexTaskTest
     }
 
     @Override
-    public void close() throws IOException
+    public void close()
     {
       synchronized (this) {
         closed = true;
@@ -228,7 +226,7 @@ public class RealtimeIndexTaskTest
 
     @Override
     @SuppressWarnings("unchecked")
-    public Firehose connect(InputRowParser parser, File temporaryDirectory) throws IOException, ParseException
+    public Firehose connect(InputRowParser parser, File temporaryDirectory) throws ParseException
     {
       return new TestFirehose(parser);
     }
@@ -260,7 +258,7 @@ public class RealtimeIndexTaskTest
   }
 
   @Test
-  public void testMakeTaskId() throws Exception
+  public void testMakeTaskId()
   {
     Assert.assertEquals(
         "index_realtime_test_0_2015-01-02T00:00:00.000Z_abcdefgh",
@@ -269,7 +267,7 @@ public class RealtimeIndexTaskTest
   }
 
   @Test(timeout = 60_000L)
-  public void testDefaultResource() throws Exception
+  public void testDefaultResource()
   {
     final RealtimeIndexTask task = makeRealtimeTask(null);
     Assert.assertEquals(task.getId(), task.getTaskResource().getAvailabilityGroup());
@@ -479,21 +477,10 @@ public class RealtimeIndexTaskTest
     expectedException.expectCause(CoreMatchers.<Throwable>instanceOf(ParseException.class));
     expectedException.expectCause(
         ThrowableMessageMatcher.hasMessage(
-            CoreMatchers.containsString("Encountered parse error for aggregator[met1]")
+            CoreMatchers.containsString("[Unable to parse value[foo] for field[met1]")
         )
     );
-    expectedException.expect(
-        ThrowableCauseMatcher.hasCause(
-            ThrowableCauseMatcher.hasCause(
-                CoreMatchers.allOf(
-                    CoreMatchers.<Throwable>instanceOf(ParseException.class),
-                    ThrowableMessageMatcher.hasMessage(
-                        CoreMatchers.containsString("Unable to parse value[foo] for field[met1]")
-                    )
-                )
-            )
-        )
-    );
+
     statusFuture.get();
   }
 
@@ -917,6 +904,7 @@ public class RealtimeIndexTaskTest
     );
     RealtimeTuningConfig realtimeTuningConfig = new RealtimeTuningConfig(
         1000,
+        null,
         new Period("P1Y"),
         new Period("PT10M"),
         null,
@@ -930,6 +918,7 @@ public class RealtimeIndexTaskTest
         0,
         reportParseExceptions,
         handoffTimeout,
+        null,
         null,
         null
     );
@@ -1048,10 +1037,6 @@ public class RealtimeIndexTaskTest
             //Noop
           }
 
-          Map<SegmentDescriptor, Pair<Executor, Runnable>> getHandOffCallbacks()
-          {
-            return handOffCallbacks;
-          }
         };
       }
     };
@@ -1089,13 +1074,14 @@ public class RealtimeIndexTaskTest
         EasyMock.createNiceMock(DruidNodeAnnouncer.class),
         EasyMock.createNiceMock(DruidNode.class),
         new LookupNodeService("tier"),
-        new DataNodeService("tier", 1000, ServerType.INDEXER_EXECUTOR, 0)
+        new DataNodeService("tier", 1000, ServerType.INDEXER_EXECUTOR, 0),
+        new NoopTestTaskFileWriter()
     );
 
     return toolboxFactory.build(task);
   }
 
-  public long sumMetric(final Task task, final DimFilter filter, final String metric) throws Exception
+  public long sumMetric(final Task task, final DimFilter filter, final String metric)
   {
     // Do a query.
     TimeseriesQuery query = Druids.newTimeseriesQueryBuilder()

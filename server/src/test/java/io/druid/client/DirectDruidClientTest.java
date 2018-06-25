@@ -19,16 +19,12 @@
 
 package io.druid.client;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
-import com.metamx.http.client.HttpClient;
-import com.metamx.http.client.Request;
-import com.metamx.http.client.response.HttpResponseHandler;
-import com.metamx.http.client.response.StatusResponseHolder;
 import io.druid.client.selector.ConnectionCountServerSelectorStrategy;
 import io.druid.client.selector.HighestPriorityTierSelectorStrategy;
 import io.druid.client.selector.QueryableDruidServer;
@@ -38,6 +34,10 @@ import io.druid.java.util.common.DateTimes;
 import io.druid.java.util.common.Intervals;
 import io.druid.java.util.common.StringUtils;
 import io.druid.java.util.common.guava.Sequence;
+import io.druid.java.util.http.client.HttpClient;
+import io.druid.java.util.http.client.Request;
+import io.druid.java.util.http.client.response.HttpResponseHandler;
+import io.druid.java.util.http.client.response.StatusResponseHolder;
 import io.druid.query.Druids;
 import io.druid.query.QueryInterruptedException;
 import io.druid.query.QueryPlus;
@@ -153,7 +153,7 @@ public class DirectDruidClientTest
     );
 
     QueryableDruidServer queryableDruidServer1 = new QueryableDruidServer(
-        new DruidServer("test1", "localhost", null, 0, ServerType.HISTORICAL, DruidServer.DEFAULT_TIER, 0),
+        new DruidServer("test1", "localhost", null, 0, ServerType.REALTIME, DruidServer.DEFAULT_TIER, 0),
         client1
     );
     serverSelector.addServerAndUpdateSegment(queryableDruidServer1, serverSelector.getSegment());
@@ -164,7 +164,7 @@ public class DirectDruidClientTest
     serverSelector.addServerAndUpdateSegment(queryableDruidServer2, serverSelector.getSegment());
 
     TimeBoundaryQuery query = Druids.newTimeBoundaryQueryBuilder().dataSource("test").build();
-
+    query = query.withOverriddenContext(ImmutableMap.of(DirectDruidClient.QUERY_FAIL_TIME, Long.MAX_VALUE));
     Sequence s1 = client1.run(QueryPlus.wrap(query), defaultContext);
     Assert.assertTrue(capturedRequest.hasCaptured());
     Assert.assertEquals(url, capturedRequest.getValue().getUrl());
@@ -172,15 +172,15 @@ public class DirectDruidClientTest
     Assert.assertEquals(1, client1.getNumOpenConnections());
 
     // simulate read timeout
-    Sequence s2 = client1.run(QueryPlus.wrap(query), defaultContext);
+    client1.run(QueryPlus.wrap(query), defaultContext);
     Assert.assertEquals(2, client1.getNumOpenConnections());
     futureException.setException(new ReadTimeoutException());
     Assert.assertEquals(1, client1.getNumOpenConnections());
 
     // subsequent connections should work
-    Sequence s3 = client1.run(QueryPlus.wrap(query), defaultContext);
-    Sequence s4 = client1.run(QueryPlus.wrap(query), defaultContext);
-    Sequence s5 = client1.run(QueryPlus.wrap(query), defaultContext);
+    client1.run(QueryPlus.wrap(query), defaultContext);
+    client1.run(QueryPlus.wrap(query), defaultContext);
+    client1.run(QueryPlus.wrap(query), defaultContext);
 
     Assert.assertTrue(client1.getNumOpenConnections() == 4);
 
@@ -206,7 +206,7 @@ public class DirectDruidClientTest
   }
 
   @Test
-  public void testCancel() throws Exception
+  public void testCancel()
   {
     HttpClient httpClient = EasyMock.createStrictMock(HttpClient.class);
 
@@ -268,6 +268,7 @@ public class DirectDruidClientTest
     serverSelector.addServerAndUpdateSegment(queryableDruidServer1, serverSelector.getSegment());
 
     TimeBoundaryQuery query = Druids.newTimeBoundaryQueryBuilder().dataSource("test").build();
+    query = query.withOverriddenContext(ImmutableMap.of(DirectDruidClient.QUERY_FAIL_TIME, Long.MAX_VALUE));
     cancellationFuture.set(new StatusResponseHolder(HttpResponseStatus.OK, new StringBuilder("cancelled")));
     Sequence results = client1.run(QueryPlus.wrap(query), defaultContext);
     Assert.assertEquals(HttpMethod.DELETE, capturedRequest.getValue().getMethod());
@@ -287,7 +288,7 @@ public class DirectDruidClientTest
   }
 
   @Test
-  public void testQueryInterruptionExceptionLogMessage() throws JsonProcessingException
+  public void testQueryInterruptionExceptionLogMessage()
   {
     HttpClient httpClient = EasyMock.createMock(HttpClient.class);
     SettableFuture<Object> interruptionFuture = SettableFuture.create();
@@ -339,6 +340,7 @@ public class DirectDruidClientTest
     serverSelector.addServerAndUpdateSegment(queryableDruidServer, dataSegment);
 
     TimeBoundaryQuery query = Druids.newTimeBoundaryQueryBuilder().dataSource("test").build();
+    query = query.withOverriddenContext(ImmutableMap.of(DirectDruidClient.QUERY_FAIL_TIME, Long.MAX_VALUE));
     interruptionFuture.set(
         new ByteArrayInputStream(
             StringUtils.toUtf8("{\"error\":\"testing1\",\"errorMessage\":\"testing2\"}")

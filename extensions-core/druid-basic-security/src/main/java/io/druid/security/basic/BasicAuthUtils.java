@@ -80,11 +80,6 @@ public class BasicAuthUtils
       {
       };
 
-  public static String getEncodedCredentials(final String unencodedCreds)
-  {
-    return Base64.getEncoder().encodeToString(StringUtils.toUtf8(unencodedCreds));
-  }
-
   public static byte[] hashPassword(final char[] password, final byte[] salt, final int iterations)
   {
     try {
@@ -117,7 +112,7 @@ public class BasicAuthUtils
   }
 
   @Nullable
-  public static String getBasicUserSecretFromHttpReq(HttpServletRequest httpReq)
+  public static String getEncodedUserSecretFromHttpReq(HttpServletRequest httpReq)
   {
     String authHeader = httpReq.getHeader("Authorization");
 
@@ -133,8 +128,12 @@ public class BasicAuthUtils
       return null;
     }
 
-    String encodedUserSecret = authHeader.substring(6);
+    return authHeader.substring(6);
+  }
 
+  @Nullable
+  public static String decodeUserSecret(String encodedUserSecret)
+  {
     try {
       return StringUtils.fromUtf8(Base64.getDecoder().decode(encodedUserSecret));
     }

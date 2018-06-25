@@ -26,16 +26,15 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-
 import io.druid.indexer.updater.HadoopConverterJob;
 import io.druid.indexer.updater.HadoopDruidConverterConfig;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.actions.TaskActionClient;
 import io.druid.java.util.common.UOE;
 import io.druid.java.util.common.logger.Logger;
-import io.druid.segment.writeout.SegmentWriteOutMediumFactory;
 import io.druid.segment.IndexSpec;
+import io.druid.segment.writeout.SegmentWriteOutMediumFactory;
 import io.druid.timeline.DataSegment;
 import org.joda.time.Interval;
 
@@ -211,7 +210,7 @@ public class HadoopConverterTask extends ConvertSegmentTask
     }
 
     @Override
-    public boolean isReady(TaskActionClient taskActionClient) throws Exception
+    public boolean isReady(TaskActionClient taskActionClient)
     {
       return true;
     }

@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.metamx.http.client.HttpClient;
+import io.druid.java.util.http.client.HttpClient;
 import io.druid.client.selector.HighestPriorityTierSelectorStrategy;
 import io.druid.client.selector.RandomServerSelectorStrategy;
 import io.druid.client.selector.ServerSelector;
@@ -130,8 +130,7 @@ public class BrokerServerViewTest extends CuratorTestBase
     Assert.assertTrue(actualPartitionHolder.isComplete());
     Assert.assertEquals(1, Iterables.size(actualPartitionHolder));
 
-    ServerSelector selector = ((SingleElementPartitionChunk<ServerSelector>) actualPartitionHolder.iterator()
-                                                                                                  .next()).getObject();
+    ServerSelector selector = (actualPartitionHolder.iterator().next()).getObject();
     Assert.assertFalse(selector.isEmpty());
     Assert.assertEquals(segment, selector.getSegment());
     Assert.assertEquals(druidServer, selector.pick().getServer());

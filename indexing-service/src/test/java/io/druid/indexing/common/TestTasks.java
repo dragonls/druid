@@ -23,6 +23,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.actions.TaskActionClient;
 import io.druid.indexing.common.task.AbstractTask;
 import io.druid.indexing.common.task.Task;
@@ -62,13 +63,13 @@ public class TestTasks
     }
 
     @Override
-    public boolean isReady(TaskActionClient taskActionClient) throws Exception
+    public boolean isReady(TaskActionClient taskActionClient)
     {
       return true;
     }
 
     @Override
-    public TaskStatus run(TaskToolbox toolbox) throws Exception
+    public TaskStatus run(TaskToolbox toolbox)
     {
       return TaskStatus.success(getId());
     }
@@ -90,7 +91,7 @@ public class TestTasks
     }
 
     @Override
-    public boolean isReady(TaskActionClient taskActionClient) throws Exception
+    public boolean isReady(TaskActionClient taskActionClient)
     {
       return true;
     }

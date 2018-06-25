@@ -19,6 +19,7 @@
 
 package io.druid.indexing.overlord;
 
+import io.druid.java.util.common.Pair;
 import io.druid.segment.realtime.appenderator.SegmentIdentifier;
 import io.druid.timeline.DataSegment;
 import org.joda.time.Interval;
@@ -41,9 +42,17 @@ public interface IndexerMetadataStorageCoordinator
    *
    * @throws IOException
    */
-  List<DataSegment> getUsedSegmentsForInterval(String dataSource, Interval interval)
-      throws IOException;
+  List<DataSegment> getUsedSegmentsForInterval(String dataSource, Interval interval);
 
+  /**
+   * Get all used segments and the created_date of these segments in a given datasource and interval
+   * 
+   * @param dataSource The datasource to query
+   * @param interval   The interval for which all applicable and used datasources are requested. Start is inclusive, end is exclusive
+   * @return The DataSegments and the related created_date of segments which include data in the requested interval
+   */
+  List<Pair<DataSegment, String>> getUsedSegmentAndCreatedDateForInterval(String dataSource, Interval interval);
+  
   /**
    * Get all segments which may include any data in the interval and are flagged as used.
    *
@@ -54,8 +63,7 @@ public interface IndexerMetadataStorageCoordinator
    *
    * @throws IOException
    */
-  List<DataSegment> getUsedSegmentsForIntervals(String dataSource, List<Interval> intervals)
-      throws IOException;
+  List<DataSegment> getUsedSegmentsForIntervals(String dataSource, List<Interval> intervals);
 
   /**
    * Attempts to insert a set of segments to the metadata storage. Returns the set of segments actually added (segments
@@ -94,7 +102,7 @@ public interface IndexerMetadataStorageCoordinator
       Interval interval,
       String maxVersion,
       boolean skipSegmentLineageCheck
-  ) throws IOException;
+  );
 
   /**
    * Delete pending segments created in the given interval for the given dataSource from the pending segments table.
@@ -156,9 +164,19 @@ public interface IndexerMetadataStorageCoordinator
    */
   boolean resetDataSourceMetadata(String dataSource, DataSourceMetadata dataSourceMetadata) throws IOException;
 
-  void updateSegmentMetadata(Set<DataSegment> segments) throws IOException;
+  /**
+   * Insert dataSourceMetadata entry for 'dataSource'.
+   *
+   * @param dataSource         identifier
+   * @param dataSourceMetadata value to set
+   *
+   * @return true if the entry was inserted, false otherwise
+   */
+  boolean insertDataSourceMetadata(String dataSource, DataSourceMetadata dataSourceMetadata);
+  
+  void updateSegmentMetadata(Set<DataSegment> segments);
 
-  void deleteSegments(Set<DataSegment> segments) throws IOException;
+  void deleteSegments(Set<DataSegment> segments);
 
   /**
    * Get all segments which include ONLY data within the given interval and are not flagged as used.

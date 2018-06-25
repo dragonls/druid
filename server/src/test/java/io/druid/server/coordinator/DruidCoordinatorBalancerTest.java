@@ -38,7 +38,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -74,7 +73,7 @@ public class DruidCoordinatorBalancerTest
   private BalancerStrategy balancerStrategy;
 
   @Before
-  public void setUp() throws Exception
+  public void setUp()
   {
     coordinator = EasyMock.createMock(DruidCoordinator.class);
     druidServer1 = EasyMock.createMock(ImmutableDruidServer.class);
@@ -153,7 +152,7 @@ public class DruidCoordinatorBalancerTest
   }
 
   @After
-  public void tearDown() throws Exception
+  public void tearDown()
   {
     EasyMock.verify(coordinator);
     EasyMock.verify(druidServer1);
@@ -163,9 +162,8 @@ public class DruidCoordinatorBalancerTest
     balancerStrategyExecutor.shutdownNow();
   }
 
-
   @Test
-  public void testMoveToEmptyServerBalancer() throws IOException
+  public void testMoveToEmptyServerBalancer()
   {
     mockDruidServer(druidServer1, "1", "normal", 30L, 100L, segments);
     mockDruidServer(druidServer2, "2", "normal", 0L, 100L, Collections.emptyMap());
@@ -186,7 +184,7 @@ public class DruidCoordinatorBalancerTest
         )
     );
 
-    DruidCoordinatorRuntimeParams params = defaullRuntimeParamsBuilder(
+    DruidCoordinatorRuntimeParams params = defaultRuntimeParamsBuilder(
         ImmutableList.of(druidServer1, druidServer2),
         ImmutableList.of(peon1, peon2)
     )
@@ -198,7 +196,49 @@ public class DruidCoordinatorBalancerTest
   }
 
   @Test
-  public void testMoveSameSegmentTwice() throws Exception
+  public void testMoveMaxLoadQueueServerBalancer()
+  {
+    mockDruidServer(druidServer1, "1", "normal", 30L, 100L, segments);
+    mockDruidServer(druidServer2, "2", "normal", 0L, 100L, Collections.emptyMap());
+
+    EasyMock.replay(druidServer3);
+    EasyMock.replay(druidServer4);
+
+    // Mock stuff that the coordinator needs
+    mockCoordinator(coordinator);
+
+    BalancerStrategy predefinedPickOrderStrategy = new PredefinedPickOrderBalancerStrategy(
+        balancerStrategy,
+        ImmutableList.of(
+            new BalancerSegmentHolder(druidServer1, segment1),
+            new BalancerSegmentHolder(druidServer1, segment2),
+            new BalancerSegmentHolder(druidServer1, segment3),
+            new BalancerSegmentHolder(druidServer1, segment4)
+        )
+    );
+
+    DruidCoordinatorRuntimeParams params = defaultRuntimeParamsBuilder(
+        ImmutableList.of(druidServer1, druidServer2),
+        ImmutableList.of(peon1, peon2)
+    )
+        .withBalancerStrategy(predefinedPickOrderStrategy)
+        .withDynamicConfigs(
+            CoordinatorDynamicConfig
+                .builder()
+                .withMaxSegmentsToMove(MAX_SEGMENTS_TO_MOVE)
+                .withMaxSegmentsInNodeLoadingQueue(1)
+                .build()
+        )
+        .build();
+
+    params = new DruidCoordinatorBalancerTester(coordinator).run(params);
+
+    // max to move is 5, all segments on server 1, but only expect to move 1 to server 2 since max node load queue is 1
+    Assert.assertEquals(1, params.getCoordinatorStats().getTieredStat("movedCount", "normal"));
+  }
+
+  @Test
+  public void testMoveSameSegmentTwice()
   {
     mockDruidServer(druidServer1, "1", "normal", 30L, 100L, segments);
     mockDruidServer(druidServer2, "2", "normal", 0L, 100L, Collections.emptyMap());
@@ -216,7 +256,7 @@ public class DruidCoordinatorBalancerTest
         )
     );
 
-    DruidCoordinatorRuntimeParams params = defaullRuntimeParamsBuilder(
+    DruidCoordinatorRuntimeParams params = defaultRuntimeParamsBuilder(
         ImmutableList.of(druidServer1, druidServer2),
         ImmutableList.of(peon1, peon2)
     )
@@ -233,7 +273,7 @@ public class DruidCoordinatorBalancerTest
   }
 
   @Test
-  public void testRun1() throws IOException
+  public void testRun1()
   {
     // Mock some servers of different usages
     mockDruidServer(druidServer1, "1", "normal", 30L, 100L, segments);
@@ -245,7 +285,7 @@ public class DruidCoordinatorBalancerTest
     // Mock stuff that the coordinator needs
     mockCoordinator(coordinator);
 
-    DruidCoordinatorRuntimeParams params = defaullRuntimeParamsBuilder(
+    DruidCoordinatorRuntimeParams params = defaultRuntimeParamsBuilder(
         ImmutableList.of(druidServer1, druidServer2),
         ImmutableList.of(peon1, peon2)
     ).build();
@@ -254,9 +294,8 @@ public class DruidCoordinatorBalancerTest
     Assert.assertTrue(params.getCoordinatorStats().getTieredStat("movedCount", "normal") > 0);
   }
 
-
   @Test
-  public void testRun2() throws IOException
+  public void testRun2()
   {
     // Mock some servers of different usages
     mockDruidServer(druidServer1, "1", "normal", 30L, 100L, segments);
@@ -267,13 +306,13 @@ public class DruidCoordinatorBalancerTest
     // Mock stuff that the coordinator needs
     mockCoordinator(coordinator);
 
-    DruidCoordinatorRuntimeParams params = defaullRuntimeParamsBuilder(druidServers, peons).build();
+    DruidCoordinatorRuntimeParams params = defaultRuntimeParamsBuilder(druidServers, peons).build();
 
     params = new DruidCoordinatorBalancerTester(coordinator).run(params);
     Assert.assertTrue(params.getCoordinatorStats().getTieredStat("movedCount", "normal") > 0);
   }
 
-  private DruidCoordinatorRuntimeParams.Builder defaullRuntimeParamsBuilder(
+  private DruidCoordinatorRuntimeParams.Builder defaultRuntimeParamsBuilder(
       List<ImmutableDruidServer> druidServers,
       List<LoadQueuePeon> peons
   )
@@ -393,5 +432,4 @@ public class DruidCoordinatorBalancerTest
       delegate.emitStats(tier, stats, serverHolderList);
     }
   }
-
 }

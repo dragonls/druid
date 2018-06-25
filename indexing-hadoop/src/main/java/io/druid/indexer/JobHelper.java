@@ -23,10 +23,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
-import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
-import com.google.common.io.OutputSupplier;
 import io.druid.indexer.updater.HadoopDruidConverterConfig;
+import io.druid.java.util.common.CompressionUtils;
 import io.druid.java.util.common.DateTimes;
 import io.druid.java.util.common.FileUtils;
 import io.druid.java.util.common.IAE;
@@ -45,6 +44,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.retry.RetryPolicies;
+import org.apache.hadoop.io.retry.RetryPolicy;
 import org.apache.hadoop.io.retry.RetryProxy;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.MRJobConfig;
@@ -90,6 +90,7 @@ public class JobHelper
   {
     return new Path(base, "classpath");
   }
+
   public static final String INDEX_ZIP = "index.zip";
   public static final String DESCRIPTOR_JSON = "descriptor.json";
 
@@ -277,17 +278,9 @@ public class JobHelper
   static void uploadJar(File jarFile, final Path path, final FileSystem fs) throws IOException
   {
     log.info("Uploading jar to path[%s]", path);
-    ByteStreams.copy(
-        Files.newInputStreamSupplier(jarFile),
-        new OutputSupplier<OutputStream>()
-        {
-          @Override
-          public OutputStream getOutput() throws IOException
-          {
-            return fs.create(path);
-          }
-        }
-    );
+    try (OutputStream os = fs.create(path)) {
+      Files.asByteSource(jarFile).copyTo(os);
+    }
   }
 
   static boolean isSnapshot(File jarFile)
@@ -354,19 +347,12 @@ public class JobHelper
     }
   }
 
-  public static boolean runJobs(List<Jobby> jobs, HadoopDruidIndexerConfig config)
+  public static boolean runSingleJob(Jobby job, HadoopDruidIndexerConfig config)
   {
-    String failedMessage = null;
-    for (Jobby job : jobs) {
-      if (failedMessage == null) {
-        if (!job.run()) {
-          failedMessage = StringUtils.format("Job[%s] failed!", job.getClass());
-        }
-      }
-    }
+    boolean succeeded = job.run();
 
     if (!config.getSchema().getTuningConfig().isLeaveIntermediate()) {
-      if (failedMessage == null || config.getSchema().getTuningConfig().isCleanupOnFailure()) {
+      if (succeeded || config.getSchema().getTuningConfig().isCleanupOnFailure()) {
         Path workingPath = config.makeIntermediatePath();
         log.info("Deleting path[%s]", workingPath);
         try {
@@ -380,11 +366,35 @@ public class JobHelper
       }
     }
 
-    if (failedMessage != null) {
-      throw new ISE(failedMessage);
+    return succeeded;
+  }
+
+  public static boolean runJobs(List<Jobby> jobs, HadoopDruidIndexerConfig config)
+  {
+    boolean succeeded = true;
+    for (Jobby job : jobs) {
+      if (!job.run()) {
+        succeeded = false;
+        break;
+      }
     }
 
-    return true;
+    if (!config.getSchema().getTuningConfig().isLeaveIntermediate()) {
+      if (succeeded || config.getSchema().getTuningConfig().isCleanupOnFailure()) {
+        Path workingPath = config.makeIntermediatePath();
+        log.info("Deleting path[%s]", workingPath);
+        try {
+          Configuration conf = injectSystemProperties(new Configuration());
+          config.addJobProperties(conf);
+          workingPath.getFileSystem(conf).delete(workingPath, true);
+        }
+        catch (IOException e) {
+          log.error(e, "Failed to cleanup path[%s]", workingPath);
+        }
+      }
+    }
+
+    return succeeded;
   }
 
   public static DataSegment serializeOutIndex(
@@ -562,8 +572,10 @@ public class JobHelper
       DataSegmentPusher dataSegmentPusher
   )
   {
-    return new Path(prependFSIfNullScheme(fs, basePath),
-                    dataSegmentPusher.makeIndexPathName(segmentTemplate, baseFileName));
+    return new Path(
+        prependFSIfNullScheme(fs, basePath),
+        dataSegmentPusher.makeIndexPathName(segmentTemplate, baseFileName)
+    );
   }
 
   public static Path makeTmpPath(
@@ -576,9 +588,10 @@ public class JobHelper
   {
     return new Path(
         prependFSIfNullScheme(fs, basePath),
-        StringUtils.format("./%s.%d",
-                           dataSegmentPusher.makeIndexPathName(segmentTemplate, JobHelper.INDEX_ZIP),
-                           taskAttemptID.getId()
+        StringUtils.format(
+            "./%s.%d",
+            dataSegmentPusher.makeIndexPathName(segmentTemplate, JobHelper.INDEX_ZIP),
+            taskAttemptID.getId()
         )
     );
   }
@@ -665,9 +678,21 @@ public class JobHelper
       final Path zip,
       final Configuration configuration,
       final File outDir,
-      final Progressable progressable
+      final Progressable progressable,
+      final RetryPolicy retryPolicy
   ) throws IOException
   {
+    final RetryPolicy effectiveRetryPolicy;
+    if (retryPolicy == null) {
+      effectiveRetryPolicy = RetryPolicies.exponentialBackoffRetry(
+          NUM_RETRIES,
+          SECONDS_BETWEEN_RETRIES,
+          TimeUnit.SECONDS
+      );
+    } else {
+      effectiveRetryPolicy = retryPolicy;
+    }
+
     final DataPusher zipPusher = (DataPusher) RetryProxy.create(
         DataPusher.class, new DataPusher()
         {
@@ -682,13 +707,11 @@ public class JobHelper
               try (ZipInputStream in = new ZipInputStream(fileSystem.open(zip, 1 << 13))) {
                 for (ZipEntry entry = in.getNextEntry(); entry != null; entry = in.getNextEntry()) {
                   final String fileName = entry.getName();
-                  try (final OutputStream out = new BufferedOutputStream(
-                      new FileOutputStream(
-                          outDir.getAbsolutePath()
-                          + File.separator
-                          + fileName
-                      ), 1 << 13
-                  )) {
+                  final String outputPath = new File(outDir, fileName).getAbsolutePath();
+
+                  CompressionUtils.validateZipOutputFile(zip.getName(), new File(outputPath), outDir);
+
+                  try (final OutputStream out = new BufferedOutputStream(new FileOutputStream(outputPath))) {
                     for (int len = in.read(buffer); len >= 0; len = in.read(buffer)) {
                       progressable.progress();
                       if (len == 0) {
@@ -710,7 +733,7 @@ public class JobHelper
             }
           }
         },
-        RetryPolicies.exponentialBackoffRetry(NUM_RETRIES, SECONDS_BETWEEN_RETRIES, TimeUnit.SECONDS)
+        effectiveRetryPolicy
     );
     return zipPusher.push();
   }
@@ -819,5 +842,15 @@ public class JobHelper
       log.error(e, "Failed to cleanup path[%s]", path);
       throw Throwables.propagate(e);
     }
+  }
+
+  public static String getJobTrackerAddress(Configuration config)
+  {
+    String jobTrackerAddress = config.get("mapred.job.tracker");
+    if (jobTrackerAddress == null) {
+      // New Property name for Hadoop 3.0 and later versions
+      jobTrackerAddress = config.get("mapreduce.jobtracker.address");
+    }
+    return jobTrackerAddress;
   }
 }

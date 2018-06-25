@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.metamx.http.client.HttpClient;
 import io.druid.common.guava.DSuppliers;
 import io.druid.discovery.DiscoveryDruidNode;
 import io.druid.discovery.DruidNodeDiscovery;
@@ -36,7 +35,7 @@ import io.druid.discovery.DruidNodeDiscoveryProvider;
 import io.druid.discovery.WorkerNodeService;
 import io.druid.indexer.TaskLocation;
 import io.druid.indexer.TaskState;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.task.NoopTask;
 import io.druid.indexing.common.task.Task;
 import io.druid.indexing.overlord.TaskRunnerListener;
@@ -48,6 +47,7 @@ import io.druid.indexing.overlord.setup.DefaultWorkerBehaviorConfig;
 import io.druid.indexing.worker.TaskAnnouncement;
 import io.druid.indexing.worker.Worker;
 import io.druid.java.util.common.ISE;
+import io.druid.java.util.http.client.HttpClient;
 import io.druid.segment.TestHelper;
 import io.druid.server.DruidNode;
 import io.druid.server.initialization.IndexerZkConfig;
@@ -1068,7 +1068,7 @@ public class HttpRemoteTaskRunnerTest
    * This could happen when TaskRunner starts and workers reports running/completed tasks on them.
    */
   @Test
-  public void testTaskAddedOrUpdated3() throws Exception
+  public void testTaskAddedOrUpdated3()
   {
     Task task1 = NoopTask.create("task1");
     Task task2 = NoopTask.create("task2");
@@ -1267,7 +1267,7 @@ public class HttpRemoteTaskRunnerTest
       }
 
       @Override
-      public void waitForInitialization() throws InterruptedException
+      public void waitForInitialization()
       {
       }
 

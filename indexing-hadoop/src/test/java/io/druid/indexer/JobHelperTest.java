@@ -25,6 +25,8 @@ import io.druid.data.input.impl.CSVParseSpec;
 import io.druid.data.input.impl.DimensionsSpec;
 import io.druid.data.input.impl.StringInputRowParser;
 import io.druid.data.input.impl.TimestampSpec;
+import io.druid.java.util.common.CompressionUtils;
+import io.druid.java.util.common.ISE;
 import io.druid.java.util.common.Intervals;
 import io.druid.java.util.common.granularity.Granularities;
 import io.druid.query.aggregation.AggregatorFactory;
@@ -34,7 +36,10 @@ import io.druid.segment.indexing.granularity.UniformGranularitySpec;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.NoneShardSpec;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.retry.RetryPolicies;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.util.Progressable;
 import org.joda.time.Interval;
 import org.junit.Assert;
 import org.junit.Before;
@@ -46,6 +51,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -109,6 +115,7 @@ public class JobHelperTest
                 null,
                 null,
                 null,
+                null,
                 false,
                 false,
                 false,
@@ -127,6 +134,8 @@ public class JobHelperTest
                 null,
                 false,
                 false,
+                null,
+                null,
                 null
             )
         )
@@ -134,7 +143,7 @@ public class JobHelperTest
   }
 
   @Test
-  public void testEnsurePathsAddsProperties() throws Exception
+  public void testEnsurePathsAddsProperties()
   {
     HadoopDruidIndexerConfigSpy hadoopDruidIndexerConfigSpy = new HadoopDruidIndexerConfigSpy(config);
     JobHelper.ensurePaths(hadoopDruidIndexerConfigSpy);
@@ -176,20 +185,54 @@ public class JobHelperTest
     );
   }
 
+  @Test
+  public void testEvilZip() throws IOException
+  {
+    final File tmpDir = temporaryFolder.newFolder("testEvilZip");
+
+    final File evilResult = new File("/tmp/evil.txt");
+    Files.deleteIfExists(evilResult.toPath());
+
+    File evilZip = new File(tmpDir, "evil.zip");
+    Files.deleteIfExists(evilZip.toPath());
+    CompressionUtils.makeEvilZip(evilZip);
+
+    try {
+      JobHelper.unzipNoGuava(
+          new Path(evilZip.getCanonicalPath()),
+          new Configuration(),
+          tmpDir,
+          new Progressable()
+          {
+            @Override
+            public void progress()
+            {
+
+            }
+          },
+          RetryPolicies.TRY_ONCE_THEN_FAIL
+      );
+    }
+    catch (ISE ise) {
+      Assert.assertTrue(ise.getMessage().contains("does not start with outDir"));
+      Assert.assertFalse("Zip exploit triggered, /tmp/evil.txt was written.", evilResult.exists());
+      return;
+    }
+    Assert.fail("Exception was not thrown for malicious zip file");
+  }
+
   private static class HadoopDruidIndexerConfigSpy extends HadoopDruidIndexerConfig
   {
 
-    private HadoopDruidIndexerConfig delegate;
     private Map<String, String> jobProperties = new HashMap<String, String>();
 
     public HadoopDruidIndexerConfigSpy(HadoopDruidIndexerConfig delegate)
     {
       super(delegate.getSchema());
-      this.delegate = delegate;
     }
 
     @Override
-    public Job addInputPaths(Job job) throws IOException
+    public Job addInputPaths(Job job)
     {
       Configuration configuration = job.getConfiguration();
       for (Map.Entry<String, String> en : configuration) {

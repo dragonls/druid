@@ -22,17 +22,17 @@ package io.druid.indexing.worker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.inject.Inject;
-import com.metamx.emitter.EmittingLogger;
 import io.druid.client.indexing.IndexingService;
 import io.druid.discovery.DruidLeaderClient;
 import io.druid.indexer.TaskLocation;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.config.TaskConfig;
 import io.druid.indexing.common.task.Task;
 import io.druid.indexing.overlord.TaskRunner;
 import io.druid.java.util.common.concurrent.Execs;
 import io.druid.java.util.common.lifecycle.LifecycleStart;
 import io.druid.java.util.common.lifecycle.LifecycleStop;
+import io.druid.java.util.emitter.EmittingLogger;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.PathChildrenCache;
 import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
@@ -40,7 +40,7 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
 
 /**
  * This class is deprecated and required only to support {@link io.druid.indexing.overlord.RemoteTaskRunner}.
- * {@link HttpRemoteTaskRunner} should be used instead.
+ * {@link io.druid.indexing.overlord.hrtr.HttpRemoteTaskRunner} should be used instead.
  *
  * The monitor watches ZK at a specified path for new tasks to appear. Upon starting the monitor, a listener will be
  * created that waits for new tasks. Tasks are executed as soon as they are seen.
@@ -49,7 +49,6 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
 public class WorkerTaskMonitor extends WorkerTaskManager
 {
   private static final EmittingLogger log = new EmittingLogger(WorkerTaskMonitor.class);
-  private static final int STOP_WARNING_SECONDS = 10;
 
   private final ObjectMapper jsonMapper;
   private final PathChildrenCache pathChildrenCache;
@@ -137,7 +136,8 @@ public class WorkerTaskMonitor extends WorkerTaskManager
                     announcement.getTaskType(),
                     announcement.getTaskResource(),
                     completionStatus,
-                    TaskLocation.unknown()
+                    TaskLocation.unknown(),
+                    announcement.getTaskDataSource()
                 )
             );
           }
@@ -197,7 +197,7 @@ public class WorkerTaskMonitor extends WorkerTaskManager
       workerCuratorCoordinator.removeTaskRunZnode(taskId);
     }
     catch (Exception ex) {
-      log.error(ex, "Unknown exception while deleting task[%s] znode.");
+      log.error(ex, "Unknown exception while deleting task[%s] znode.", taskId);
     }
   }
 

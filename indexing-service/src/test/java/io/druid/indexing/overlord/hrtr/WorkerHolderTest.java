@@ -20,9 +20,9 @@
 package io.druid.indexing.overlord.hrtr;
 
 import com.google.common.collect.ImmutableList;
-import com.metamx.http.client.HttpClient;
+import io.druid.java.util.http.client.HttpClient;
 import io.druid.indexer.TaskLocation;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.task.NoopTask;
 import io.druid.indexing.common.task.Task;
 import io.druid.indexing.overlord.config.HttpRemoteTaskRunnerConfig;

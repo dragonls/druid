@@ -38,6 +38,7 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
   private static final boolean DEFAULT_RESET_OFFSET_AUTOMATICALLY = false;
 
   private final int maxRowsInMemory;
+  private final long maxBytesInMemory;
   private final int maxRowsPerSegment;
   private final Period intermediatePersistPeriod;
   private final File basePersistDirectory;
@@ -49,10 +50,16 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
   private final boolean resetOffsetAutomatically;
   @Nullable
   private final SegmentWriteOutMediumFactory segmentWriteOutMediumFactory;
+  private final Period intermediateHandoffPeriod;
+
+  private final boolean logParseExceptions;
+  private final int maxParseExceptions;
+  private final int maxSavedParseExceptions;
 
   @JsonCreator
   public KafkaTuningConfig(
       @JsonProperty("maxRowsInMemory") @Nullable Integer maxRowsInMemory,
+      @JsonProperty("maxBytesInMemory") @Nullable Long maxBytesInMemory,
       @JsonProperty("maxRowsPerSegment") @Nullable Integer maxRowsPerSegment,
       @JsonProperty("intermediatePersistPeriod") @Nullable Period intermediatePersistPeriod,
       @JsonProperty("basePersistDirectory") @Nullable File basePersistDirectory,
@@ -60,10 +67,14 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
       @JsonProperty("indexSpec") @Nullable IndexSpec indexSpec,
       // This parameter is left for compatibility when reading existing configs, to be removed in Druid 0.12.
       @JsonProperty("buildV9Directly") @Nullable Boolean buildV9Directly,
-      @JsonProperty("reportParseExceptions") @Nullable Boolean reportParseExceptions,
+      @Deprecated @JsonProperty("reportParseExceptions") @Nullable Boolean reportParseExceptions,
       @JsonProperty("handoffConditionTimeout") @Nullable Long handoffConditionTimeout,
       @JsonProperty("resetOffsetAutomatically") @Nullable Boolean resetOffsetAutomatically,
-      @JsonProperty("segmentWriteOutMediumFactory") @Nullable SegmentWriteOutMediumFactory segmentWriteOutMediumFactory
+      @JsonProperty("segmentWriteOutMediumFactory") @Nullable SegmentWriteOutMediumFactory segmentWriteOutMediumFactory,
+      @JsonProperty("intermediateHandoffPeriod") @Nullable Period intermediateHandoffPeriod,
+      @JsonProperty("logParseExceptions") @Nullable Boolean logParseExceptions,
+      @JsonProperty("maxParseExceptions") @Nullable Integer maxParseExceptions,
+      @JsonProperty("maxSavedParseExceptions") @Nullable Integer maxSavedParseExceptions
   )
   {
     // Cannot be a static because default basePersistDirectory is unique per-instance
@@ -71,6 +82,9 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
 
     this.maxRowsInMemory = maxRowsInMemory == null ? defaults.getMaxRowsInMemory() : maxRowsInMemory;
     this.maxRowsPerSegment = maxRowsPerSegment == null ? DEFAULT_MAX_ROWS_PER_SEGMENT : maxRowsPerSegment;
+    // initializing this to 0, it will be lazily initialized to a value
+    // @see server.src.main.java.io.druid.segment.indexing.TuningConfigs#getMaxBytesInMemoryOrDefault(long)
+    this.maxBytesInMemory = maxBytesInMemory == null ? 0 : maxBytesInMemory;
     this.intermediatePersistPeriod = intermediatePersistPeriod == null
                                      ? defaults.getIntermediatePersistPeriod()
                                      : intermediatePersistPeriod;
@@ -87,12 +101,27 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
                                     ? DEFAULT_RESET_OFFSET_AUTOMATICALLY
                                     : resetOffsetAutomatically;
     this.segmentWriteOutMediumFactory = segmentWriteOutMediumFactory;
+    this.intermediateHandoffPeriod = intermediateHandoffPeriod == null
+                                     ? new Period().withDays(Integer.MAX_VALUE)
+                                     : intermediateHandoffPeriod;
+
+    if (this.reportParseExceptions) {
+      this.maxParseExceptions = 0;
+      this.maxSavedParseExceptions = maxSavedParseExceptions == null ? 0 : Math.min(1, maxSavedParseExceptions);
+    } else {
+      this.maxParseExceptions = maxParseExceptions == null ? TuningConfig.DEFAULT_MAX_PARSE_EXCEPTIONS : maxParseExceptions;
+      this.maxSavedParseExceptions = maxSavedParseExceptions == null
+                                     ? TuningConfig.DEFAULT_MAX_SAVED_PARSE_EXCEPTIONS
+                                     : maxSavedParseExceptions;
+    }
+    this.logParseExceptions = logParseExceptions == null ? TuningConfig.DEFAULT_LOG_PARSE_EXCEPTIONS : logParseExceptions;
   }
 
   public static KafkaTuningConfig copyOf(KafkaTuningConfig config)
   {
     return new KafkaTuningConfig(
         config.maxRowsInMemory,
+        config.maxBytesInMemory,
         config.maxRowsPerSegment,
         config.intermediatePersistPeriod,
         config.basePersistDirectory,
@@ -102,7 +131,11 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
         config.reportParseExceptions,
         config.handoffConditionTimeout,
         config.resetOffsetAutomatically,
-        config.segmentWriteOutMediumFactory
+        config.segmentWriteOutMediumFactory,
+        config.intermediateHandoffPeriod,
+        config.logParseExceptions,
+        config.maxParseExceptions,
+        config.maxSavedParseExceptions
     );
   }
 
@@ -111,6 +144,13 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
   public int getMaxRowsInMemory()
   {
     return maxRowsInMemory;
+  }
+
+  @Override
+  @JsonProperty
+  public long getMaxBytesInMemory()
+  {
+    return maxBytesInMemory;
   }
 
   @JsonProperty
@@ -185,10 +225,35 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
     return segmentWriteOutMediumFactory;
   }
 
+  @JsonProperty
+  public Period getIntermediateHandoffPeriod()
+  {
+    return intermediateHandoffPeriod;
+  }
+
+  @JsonProperty
+  public boolean isLogParseExceptions()
+  {
+    return logParseExceptions;
+  }
+
+  @JsonProperty
+  public int getMaxParseExceptions()
+  {
+    return maxParseExceptions;
+  }
+
+  @JsonProperty
+  public int getMaxSavedParseExceptions()
+  {
+    return maxSavedParseExceptions;
+  }
+
   public KafkaTuningConfig withBasePersistDirectory(File dir)
   {
     return new KafkaTuningConfig(
         maxRowsInMemory,
+        maxBytesInMemory,
         maxRowsPerSegment,
         intermediatePersistPeriod,
         dir,
@@ -198,7 +263,11 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
         reportParseExceptions,
         handoffConditionTimeout,
         resetOffsetAutomatically,
-        segmentWriteOutMediumFactory
+        segmentWriteOutMediumFactory,
+        intermediateHandoffPeriod,
+        logParseExceptions,
+        maxParseExceptions,
+        maxSavedParseExceptions
     );
   }
 
@@ -214,6 +283,7 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
     KafkaTuningConfig that = (KafkaTuningConfig) o;
     return maxRowsInMemory == that.maxRowsInMemory &&
            maxRowsPerSegment == that.maxRowsPerSegment &&
+           maxBytesInMemory == that.maxBytesInMemory &&
            maxPendingPersists == that.maxPendingPersists &&
            reportParseExceptions == that.reportParseExceptions &&
            handoffConditionTimeout == that.handoffConditionTimeout &&
@@ -221,7 +291,11 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
            Objects.equals(intermediatePersistPeriod, that.intermediatePersistPeriod) &&
            Objects.equals(basePersistDirectory, that.basePersistDirectory) &&
            Objects.equals(indexSpec, that.indexSpec) &&
-           Objects.equals(segmentWriteOutMediumFactory, that.segmentWriteOutMediumFactory);
+           Objects.equals(segmentWriteOutMediumFactory, that.segmentWriteOutMediumFactory) &&
+           Objects.equals(intermediateHandoffPeriod, that.intermediateHandoffPeriod) &&
+           logParseExceptions == that.logParseExceptions &&
+           maxParseExceptions == that.maxParseExceptions &&
+           maxSavedParseExceptions == that.maxSavedParseExceptions;
   }
 
   @Override
@@ -230,6 +304,7 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
     return Objects.hash(
         maxRowsInMemory,
         maxRowsPerSegment,
+        maxBytesInMemory,
         intermediatePersistPeriod,
         basePersistDirectory,
         maxPendingPersists,
@@ -237,7 +312,11 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
         reportParseExceptions,
         handoffConditionTimeout,
         resetOffsetAutomatically,
-        segmentWriteOutMediumFactory
+        segmentWriteOutMediumFactory,
+        intermediateHandoffPeriod,
+        logParseExceptions,
+        maxParseExceptions,
+        maxSavedParseExceptions
     );
   }
 
@@ -247,6 +326,7 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
     return "KafkaTuningConfig{" +
            "maxRowsInMemory=" + maxRowsInMemory +
            ", maxRowsPerSegment=" + maxRowsPerSegment +
+           ", maxBytesInMemory=" + maxBytesInMemory +
            ", intermediatePersistPeriod=" + intermediatePersistPeriod +
            ", basePersistDirectory=" + basePersistDirectory +
            ", maxPendingPersists=" + maxPendingPersists +
@@ -255,6 +335,10 @@ public class KafkaTuningConfig implements TuningConfig, AppenderatorConfig
            ", handoffConditionTimeout=" + handoffConditionTimeout +
            ", resetOffsetAutomatically=" + resetOffsetAutomatically +
            ", segmentWriteOutMediumFactory=" + segmentWriteOutMediumFactory +
+           ", intermediateHandoffPeriod=" + intermediateHandoffPeriod +
+           ", logParseExceptions=" + logParseExceptions +
+           ", maxParseExceptions=" + maxParseExceptions +
+           ", maxSavedParseExceptions=" + maxSavedParseExceptions +
            '}';
   }
 }

@@ -53,7 +53,7 @@ public class TimewarpOperatorTest
   );
 
   @Test
-  public void testComputeOffset() throws Exception
+  public void testComputeOffset()
   {
     {
       final DateTime t = DateTimes.of("2014-01-23");
@@ -75,13 +75,13 @@ public class TimewarpOperatorTest
 
       Assert.assertEquals(
           tOffset,
-          t.plus(testOperator.computeOffset(t.getMillis(), DateTimeZone.forID("America/Los_Angeles")))
+          t.plus(testOperator.computeOffset(t.getMillis(), DateTimes.inferTzfromString("America/Los_Angeles")))
       );
     }
   }
 
   @Test
-  public void testPostProcess() throws Exception
+  public void testPostProcess()
   {
     QueryRunner<Result<TimeseriesResultValue>> queryRunner = testOperator.postProcess(
         new QueryRunner<Result<TimeseriesResultValue>>()
@@ -190,7 +190,7 @@ public class TimewarpOperatorTest
   }
 
   @Test
-  public void testPostProcessWithTimezonesAndDstShift() throws Exception
+  public void testPostProcessWithTimezonesAndDstShift()
   {
     QueryRunner<Result<TimeseriesResultValue>> queryRunner = testOperator.postProcess(
         new QueryRunner<Result<TimeseriesResultValue>>()
@@ -226,7 +226,7 @@ public class TimewarpOperatorTest
         Druids.newTimeseriesQueryBuilder()
               .dataSource("dummy")
               .intervals("2014-07-31T-07/2014-08-05T-07")
-              .granularity(new PeriodGranularity(new Period("P1D"), null, DateTimeZone.forID("America/Los_Angeles")))
+              .granularity(new PeriodGranularity(new Period("P1D"), null, DateTimes.inferTzfromString("America/Los_Angeles")))
               .aggregators(Arrays.<AggregatorFactory>asList(new CountAggregatorFactory("count")))
               .build();
 
@@ -250,7 +250,7 @@ public class TimewarpOperatorTest
   }
 
   @Test
-  public void testPostProcessWithTimezonesAndNoDstShift() throws Exception
+  public void testPostProcessWithTimezonesAndNoDstShift()
   {
     QueryRunner<Result<TimeseriesResultValue>> queryRunner = testOperator.postProcess(
         new QueryRunner<Result<TimeseriesResultValue>>()
@@ -286,7 +286,7 @@ public class TimewarpOperatorTest
         Druids.newTimeseriesQueryBuilder()
               .dataSource("dummy")
               .intervals("2014-07-31T-07/2014-08-05T-07")
-              .granularity(new PeriodGranularity(new Period("P1D"), null, DateTimeZone.forID("America/Phoenix")))
+              .granularity(new PeriodGranularity(new Period("P1D"), null, DateTimes.inferTzfromString("America/Phoenix")))
               .aggregators(Arrays.<AggregatorFactory>asList(new CountAggregatorFactory("count")))
               .build();
 
@@ -310,7 +310,7 @@ public class TimewarpOperatorTest
   }
 
   @Test
-  public void testEmptyFutureInterval() throws Exception
+  public void testEmptyFutureInterval()
   {
     QueryRunner<Result<TimeseriesResultValue>> queryRunner = testOperator.postProcess(
         new QueryRunner<Result<TimeseriesResultValue>>()

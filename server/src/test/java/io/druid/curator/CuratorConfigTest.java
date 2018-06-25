@@ -19,23 +19,28 @@
 
 package io.druid.curator;
 
-import io.druid.guice.JsonConfigTesterBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.lang.reflect.InvocationTargetException;
+import io.druid.guice.JsonConfigTesterBase;
 
 public class CuratorConfigTest extends JsonConfigTesterBase<CuratorConfig>
 {
   @Test
-  public void testSerde() throws IllegalAccessException, NoSuchMethodException, InvocationTargetException
+  public void testSerde()
   {
     propertyValues.put(getPropertyKey("host"), "fooHost");
     propertyValues.put(getPropertyKey("acl"), "true");
+    propertyValues.put(getPropertyKey("user"), "test-zk-user");
+    propertyValues.put(getPropertyKey("pwd"), "test-zk-pwd");
+    propertyValues.put(getPropertyKey("authScheme"), "auth");
     testProperties.putAll(propertyValues);
     configProvider.inject(testProperties, configurator);
     CuratorConfig config = configProvider.get().get();
     Assert.assertEquals("fooHost", config.getZkHosts());
     Assert.assertEquals(true, config.getEnableAcl());
+    Assert.assertEquals("test-zk-user", config.getZkUser());
+    Assert.assertEquals("test-zk-pwd", config.getZkPwd());
+    Assert.assertEquals("auth", config.getAuthScheme());
   }
 }

@@ -19,9 +19,9 @@
 
 package io.druid.indexing.overlord;
 
-import com.metamx.emitter.EmittingLogger;
+import io.druid.java.util.emitter.EmittingLogger;
 import io.druid.indexer.TaskLocation;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.java.util.common.Pair;
 
 import java.util.concurrent.Executor;

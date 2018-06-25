@@ -93,7 +93,7 @@ public class StaticGoogleBlobStoreFirehoseFactory extends PrefetchableTextFilesF
   @Override
   protected InputStream wrapObjectStream(GoogleBlob object, InputStream stream) throws IOException
   {
-    return object.getPath().endsWith(".gz") ? CompressionUtils.gzipInputStream(stream) : stream;
+    return CompressionUtils.decompress(stream, object.getPath());
   }
 
   @Override
@@ -132,7 +132,7 @@ public class StaticGoogleBlobStoreFirehoseFactory extends PrefetchableTextFilesF
   @Override
   protected Predicate<Throwable> getRetryCondition()
   {
-    return GoogleUtils.GOOGLE_RETRY;
+    return GoogleUtils::isRetryable;
   }
 }
 

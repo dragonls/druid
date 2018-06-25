@@ -77,7 +77,7 @@ The Index Task is a simpler variation of the Index Hadoop task that is designed 
     "tuningConfig" : {
       "type" : "index",
       "targetPartitionSize" : 5000000,
-      "maxRowsInMemory" : 75000
+      "maxRowsInMemory" : 1000000
     }
   }
 }
@@ -137,8 +137,9 @@ The tuningConfig is optional and default parameters will be used if no tuningCon
 |--------|-----------|-------|---------|
 |type|The task type, this should always be "index".|none|yes|
 |targetPartitionSize|Used in sharding. Determines how many rows are in each segment.|5000000|no|
-|maxRowsInMemory|Used in determining when intermediate persists to disk should occur.|75000|no|
-|maxTotalRows|Total number of rows in segments waiting for being published. Used in determining when intermediate publish should occur.|150000|no|
+|maxRowsInMemory|Used in determining when intermediate persists to disk should occur. Normally user does not need to set this, but depending on the nature of data, if rows are short in terms of bytes, user may not want to store a million rows in memory and this value should be set.|1000000|no|
+|maxBytesInMemory|Used in determining when intermediate persists to disk should occur. Normally this is computed internally and user does not need to set it. This value represents number of bytes to aggregate in heap memory before persisting. This is based on a rough estimate of memory usage and not actual usage. The maximum heap memory usage for indexing is maxBytesInMemory * (2 + maxPendingPersists)|1/6 of max JVM memory|no|
+|maxTotalRows|Total number of rows in segments waiting for being published. Used in determining when intermediate publish should occur.|20000000|no|
 |numShards|Directly specify the number of shards to create. If this is specified and 'intervals' is specified in the granularitySpec, the index task can skip the determine intervals/partitions pass through the data. numShards cannot be specified if targetPartitionSize is set.|null|no|
 |indexSpec|defines segment storage format options to be used at indexing time, see [IndexSpec](#indexspec)|null|no|
 |maxPendingPersists|Maximum number of persists that can be pending but not started. If this limit would be exceeded by a new intermediate persist, ingestion will block until the currently-running persist finishes. Maximum heap memory usage for indexing scales with maxRowsInMemory * (2 + maxPendingPersists).|0 (meaning one persist can be running concurrently with ingestion, and none can be queued up)|no|
@@ -276,8 +277,10 @@ An example of compaction task is
 }
 ```
 
-This compaction task merges _all segments_ of the interval `2017-01-01/2018-01-01` into a _single segment_.
-To merge each day's worth of data into a separate segment, you can submit multiple `compact` tasks, one for each day. They will run in parallel.
+This compaction task reads _all segments_ of the interval `2017-01-01/2018-01-01` and results in new segments.
+Note that intervals of the input segments are merged into a single interval of `2017-01-01/2018-01-01` no matter what the segmentGranularity was.
+To controll the number of result segments, you can set `targetPartitionSize` or `numShards`. See [indexTuningConfig](#tuningconfig) for more details.
+To merge each day's worth of data into separate segments, you can submit multiple `compact` tasks, one for each day. They will run in parallel.
 
 A compaction task internally generates an `index` task spec for performing compaction work with some fixed parameters.
 For example, its `firehose` is always the [ingestSegmentSpec](./firehose.html), and `dimensionsSpec` and `metricsSpec`

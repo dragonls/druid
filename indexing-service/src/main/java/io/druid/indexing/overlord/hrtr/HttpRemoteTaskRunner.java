@@ -36,17 +36,13 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableScheduledFuture;
 import com.google.common.util.concurrent.ListeningScheduledExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.metamx.emitter.EmittingLogger;
-import com.metamx.http.client.HttpClient;
-import com.metamx.http.client.Request;
-import com.metamx.http.client.response.InputStreamResponseHandler;
 import io.druid.concurrent.LifecycleLock;
 import io.druid.discovery.DiscoveryDruidNode;
 import io.druid.discovery.DruidNodeDiscovery;
 import io.druid.discovery.DruidNodeDiscoveryProvider;
 import io.druid.discovery.WorkerNodeService;
 import io.druid.indexer.TaskLocation;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.task.Task;
 import io.druid.indexing.overlord.ImmutableWorkerInfo;
 import io.druid.indexing.overlord.RemoteTaskRunnerWorkItem;
@@ -72,6 +68,10 @@ import io.druid.java.util.common.concurrent.Execs;
 import io.druid.java.util.common.concurrent.ScheduledExecutors;
 import io.druid.java.util.common.lifecycle.LifecycleStart;
 import io.druid.java.util.common.lifecycle.LifecycleStop;
+import io.druid.java.util.emitter.EmittingLogger;
+import io.druid.java.util.http.client.HttpClient;
+import io.druid.java.util.http.client.Request;
+import io.druid.java.util.http.client.response.InputStreamResponseHandler;
 import io.druid.server.initialization.IndexerZkConfig;
 import io.druid.tasklogs.TaskLogStreamer;
 import org.apache.curator.framework.CuratorFramework;
@@ -834,7 +834,7 @@ public class HttpRemoteTaskRunner implements WorkerTaskRunner, TaskLogStreamer
   }
 
   @Override
-  public Optional<ByteSource> streamTaskLog(String taskId, long offset) throws IOException
+  public Optional<ByteSource> streamTaskLog(String taskId, long offset)
   {
     HttpRemoteTaskRunnerWorkItem taskRunnerWorkItem = tasks.get(taskId);
     Worker worker = null;
@@ -942,6 +942,7 @@ public class HttpRemoteTaskRunner implements WorkerTaskRunner, TaskLogStreamer
             null,
             null,
             task,
+            task.getType(),
             HttpRemoteTaskRunnerWorkItem.State.PENDING
         );
         tasks.put(task.getId(), taskRunnerWorkItem);
@@ -1162,6 +1163,7 @@ public class HttpRemoteTaskRunner implements WorkerTaskRunner, TaskLogStreamer
                   worker,
                   TaskLocation.unknown(),
                   null,
+                  announcement.getTaskType(),
                   HttpRemoteTaskRunnerWorkItem.State.RUNNING
               );
               tasks.put(taskId, taskItem);
@@ -1337,11 +1339,13 @@ public class HttpRemoteTaskRunner implements WorkerTaskRunner, TaskLogStreamer
         Worker worker,
         TaskLocation location,
         @Nullable Task task,
+        String taskType,
         State state
     )
     {
-      super(taskId, task == null ? null : task.getType(), worker, location);
+      super(taskId, task == null ? null : task.getType(), worker, location, task == null ? null : task.getDataSource());
       this.state = Preconditions.checkNotNull(state);
+      Preconditions.checkArgument(task == null || taskType == null || taskType.equals(task.getType()));
 
       // It is possible to have it null when the TaskRunner is just started and discovered this taskId from a worker,
       // notifications don't contain whole Task instance but just metadata about the task.
@@ -1356,7 +1360,11 @@ public class HttpRemoteTaskRunner implements WorkerTaskRunner, TaskLogStreamer
     public void setTask(Task task)
     {
       this.task = task;
-      setTaskType(task.getType());
+      if (getTaskType() == null) {
+        setTaskType(task.getType());
+      } else {
+        Preconditions.checkArgument(getTaskType().equals(task.getType()));
+      }
     }
 
     public State getState()

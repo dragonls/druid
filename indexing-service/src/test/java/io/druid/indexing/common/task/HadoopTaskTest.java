@@ -22,7 +22,7 @@ package io.druid.indexing.common.task;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.druid.indexer.updater.HadoopDruidConverterConfig;
-import io.druid.indexing.common.TaskStatus;
+import io.druid.indexer.TaskStatus;
 import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.actions.TaskActionClient;
 import io.druid.indexing.common.config.TaskConfig;
@@ -58,13 +58,13 @@ public class HadoopTaskTest
       }
 
       @Override
-      public boolean isReady(TaskActionClient taskActionClient) throws Exception
+      public boolean isReady(TaskActionClient taskActionClient)
       {
         return false;
       }
 
       @Override
-      public TaskStatus run(TaskToolbox toolbox) throws Exception
+      public TaskStatus run(TaskToolbox toolbox)
       {
         return null;
       }

@@ -21,6 +21,7 @@ package io.druid.tests.indexer;
 
 import com.google.common.base.Throwables;
 import com.google.inject.Inject;
+import io.druid.java.util.common.DateTimes;
 import io.druid.java.util.common.ISE;
 import io.druid.java.util.common.StringUtils;
 import io.druid.java.util.common.logger.Logger;
@@ -153,7 +154,7 @@ public class ITKafkaTest extends AbstractIndexerTest
         new StringSerializer()
     );
 
-    DateTimeZone zone = DateTimeZone.forID("UTC");
+    DateTimeZone zone = DateTimes.inferTzfromString("UTC");
     // format for putting into events
     DateTimeFormatter event_fmt = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
 
@@ -195,7 +196,7 @@ public class ITKafkaTest extends AbstractIndexerTest
       LOG.info("indexerFile name: [%s]", INDEXER_FILE);
 
       Properties consumerProperties = new Properties();
-      consumerProperties.put("zookeeper.connect", config.getZookeeperHosts());
+      consumerProperties.put("zookeeper.connect", config.getZookeeperInternalHosts());
       consumerProperties.put("zookeeper.connection.timeout.ms", "15000");
       consumerProperties.put("zookeeper.sync.time.ms", "5000");
       consumerProperties.put("group.id", Long.toString(System.currentTimeMillis()));
@@ -233,7 +234,7 @@ public class ITKafkaTest extends AbstractIndexerTest
           new Callable<Boolean>()
           {
             @Override
-            public Boolean call() throws Exception
+            public Boolean call()
             {
               return coordinator.areSegmentsLoaded(DATASOURCE);
             }
@@ -287,7 +288,7 @@ public class ITKafkaTest extends AbstractIndexerTest
   }
 
   @AfterClass
-  public void afterClass() throws Exception
+  public void afterClass()
   {
     LOG.info("teardown");
     if (config.manageKafkaTopic()) {

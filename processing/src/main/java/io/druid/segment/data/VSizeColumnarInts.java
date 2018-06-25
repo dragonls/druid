@@ -27,8 +27,6 @@ import io.druid.java.util.common.io.smoosh.FileSmoosher;
 import io.druid.query.monomorphicprocessing.RuntimeShapeInspector;
 import io.druid.segment.serde.MetaSerdeHelper;
 import io.druid.segment.writeout.HeapByteBufferWriteOutBytes;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.ints.IntList;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -52,24 +50,24 @@ public class VSizeColumnarInts implements ColumnarInts, Comparable<VSizeColumnar
 
   public static VSizeColumnarInts fromArray(int[] array, int maxValue)
   {
-    return fromList(IntArrayList.wrap(array), maxValue);
+    return fromIndexedInts(new ArrayBasedIndexedInts(array), maxValue);
   }
 
-  public static VSizeColumnarInts fromList(IntList list, int maxValue)
+  public static VSizeColumnarInts fromIndexedInts(IndexedInts ints, int maxValue)
   {
     int numBytes = getNumBytesForMax(maxValue);
 
-    final ByteBuffer buffer = ByteBuffer.allocate((list.size() * numBytes) + (4 - numBytes));
-    writeToBuffer(buffer, list, numBytes, maxValue);
+    final ByteBuffer buffer = ByteBuffer.allocate((ints.size() * numBytes) + (4 - numBytes));
+    writeToBuffer(buffer, ints, numBytes, maxValue);
 
     return new VSizeColumnarInts(buffer.asReadOnlyBuffer(), numBytes);
   }
 
-  private static void writeToBuffer(ByteBuffer buffer, IntList list, int numBytes, int maxValue)
+  private static void writeToBuffer(ByteBuffer buffer, IndexedInts ints, int numBytes, int maxValue)
   {
-    ByteBuffer helperBuffer = ByteBuffer.allocate(Ints.BYTES);
-    for (int i = 0; i < list.size(); i++) {
-      int val = list.getInt(i);
+    ByteBuffer helperBuffer = ByteBuffer.allocate(Integer.BYTES);
+    for (int i = 0, size = ints.size(); i < size; i++) {
+      int val = ints.get(i);
       if (val < 0) {
         throw new IAE("integer values must be positive, got[%d], i[%d]", val, i);
       }
@@ -78,7 +76,7 @@ public class VSizeColumnarInts implements ColumnarInts, Comparable<VSizeColumnar
       }
 
       helperBuffer.putInt(0, val);
-      buffer.put(helperBuffer.array(), Ints.BYTES - numBytes, numBytes);
+      buffer.put(helperBuffer.array(), Integer.BYTES - numBytes, numBytes);
     }
     buffer.position(0);
   }
@@ -130,13 +128,13 @@ public class VSizeColumnarInts implements ColumnarInts, Comparable<VSizeColumnar
 
   public int getNumBytesNoPadding()
   {
-    return buffer.remaining() - (Ints.BYTES - numBytes);
+    return buffer.remaining() - (Integer.BYTES - numBytes);
   }
 
   public void writeBytesNoPaddingTo(HeapByteBufferWriteOutBytes out)
   {
     ByteBuffer toWrite = buffer.slice();
-    toWrite.limit(toWrite.limit() - (Ints.BYTES - numBytes));
+    toWrite.limit(toWrite.limit() - (Integer.BYTES - numBytes));
     out.write(toWrite);
   }
 
@@ -158,7 +156,7 @@ public class VSizeColumnarInts implements ColumnarInts, Comparable<VSizeColumnar
   }
 
   @Override
-  public long getSerializedSize() throws IOException
+  public long getSerializedSize()
   {
     return metaSerdeHelper.size(this) + buffer.remaining();
   }
@@ -197,7 +195,7 @@ public class VSizeColumnarInts implements ColumnarInts, Comparable<VSizeColumnar
   }
 
   @Override
-  public void close() throws IOException
+  public void close()
   {
     // Do nothing
   }

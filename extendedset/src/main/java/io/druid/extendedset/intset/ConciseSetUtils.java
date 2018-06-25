@@ -161,9 +161,6 @@ public class ConciseSetUtils
   /**
    * Checks whether a word contains a sequence of 0's with no set bit, or 1's
    * with no unset bit.
-   * <p/>
-   * <b>NOTE:</b> when {@link #simulateWAH} is <code>true</code>, it is
-   * equivalent to (and as fast as) <code>!</code>{@link #isLiteral(int)}
    *
    * @param word word to check
    *
@@ -192,20 +189,6 @@ public class ConciseSetUtils
   public static int getSequenceNumWords(int word)
   {
     return getSequenceCount(word) + 1;
-  }
-
-  /**
-   * Clears the (un)set bit in a sequence
-   *
-   * @param word word to check
-   *
-   * @return the sequence corresponding to the given sequence and with no
-   *         (un)set bits
-   */
-  public static int getSequenceWithNoBits(int word)
-  {
-    // clear 29 to 25 LSB bits
-    return (word & 0xC1FFFFFF);
   }
 
   /**
