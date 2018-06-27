@@ -108,8 +108,9 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
                       )
     );
     if (rowDelimiter != null) {
+      log.info("Parser class [%s]", theParser.getClass().toString());
       Preconditions.checkArgument(
-          theParser.getClass().equals(StringInputRowParser.class),
+          theParser instanceof StringInputRowParser,
           "rowDelimiter is available only for string input"
       );
     }
