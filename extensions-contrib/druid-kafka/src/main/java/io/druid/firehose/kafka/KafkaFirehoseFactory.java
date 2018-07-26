@@ -24,19 +24,23 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import io.druid.data.input.ByteBufferInputRowParser;
 import io.druid.data.input.Firehose;
 import io.druid.data.input.FirehoseFactory;
 import io.druid.data.input.InputRow;
+import io.druid.data.input.MapBasedInputRow;
+import io.druid.data.input.impl.ParseSpec;
 import io.druid.data.input.impl.StringInputRowParser;
 import io.druid.java.util.common.logger.Logger;
+import io.druid.java.util.common.parsers.ParseException;
 import org.apache.commons.lang.StringUtils;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.serialization.ByteBufferDeserializer;
+import org.joda.time.DateTime;
 
 import javax.annotation.Nullable;
 import java.io.File;
@@ -48,7 +52,9 @@ import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -75,12 +81,20 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
   @JsonProperty
   private final String messageEncoding;
 
+  @JsonProperty
+  private final Boolean isAdmonitorMode;
+
+  @JsonProperty
+  private final String iplibPath;
+
   @JsonCreator
   public KafkaFirehoseFactory(
       @JsonProperty("consumerProps") Properties consumerProps,
       @JsonProperty("feed") String feed,
       @JsonProperty("rowDelimiter") @Nullable String rowDelimiter,
-      @JsonProperty("messageEncoding") @Nullable String messageEncoding
+      @JsonProperty("messageEncoding") @Nullable String messageEncoding,
+      @JsonProperty("isAdmonitorMode") @Nullable Boolean isAdmonitorMode,
+      @JsonProperty("iplibPath") @Nullable String iplibPath
   )
   {
     this.consumerProps = consumerProps;
@@ -88,6 +102,8 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
     this.rowDelimiter = rowDelimiter;
     this.messageEncoding = messageEncoding == null ? DEFAULT_MESSAGE_ENCODING : messageEncoding;
     this.charset = Charset.forName(this.messageEncoding);
+    this.isAdmonitorMode = isAdmonitorMode == null ? false : isAdmonitorMode;
+    this.iplibPath = iplibPath;
   }
 
   @Override
@@ -108,10 +124,21 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
                       )
     );
     if (rowDelimiter != null) {
+      log.info("Parser class [%s]", theParser.getClass().toString());
       Preconditions.checkArgument(
-          theParser.getClass().equals(StringInputRowParser.class),
+          theParser instanceof StringInputRowParser,
           "rowDelimiter is available only for string input"
       );
+    }
+    if (isAdmonitorMode) {
+      Preconditions.checkArgument(
+          StringUtils.isNotBlank(iplibPath),
+          "isAdmonitorMode is true means the iplibPath must be given"
+      );
+      synchronized (IpUtil.class) {
+        IpUtil.initFromLocalFile(iplibPath);
+        log.info("loading iplib: [%s]", iplibPath);
+      }
     }
 
     final KafkaConsumer<ByteBuffer, ByteBuffer> consumer = new KafkaConsumer<>(
@@ -127,6 +154,9 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
       private List<ByteBuffer> bufferList = new ArrayList<>();
       private AtomicBoolean isCommited = new AtomicBoolean(false);
       private CharBuffer chars = null;
+      private ParseSpec parseSpec = firehoseParser.getParseSpec();
+      private static final String BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+      private static final String DEFAULT_VALUE = "N/A";
 
       /**
        * Transform {@code byteBuffer} to String using the charset.<p>
@@ -167,8 +197,8 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
       {
         if (isCommited.get()) {
           // do commit here
-          consumer.commitSync();
-          log.info("offsets committed.");
+          consumer.commitAsync();
+          log.info("offsets commit async.");
           isCommited.set(false);
         }
         try {
@@ -194,7 +224,7 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
             iter = bufferList.iterator();
           }
         }
-        catch (InterruptException e) {
+        catch (Exception e) {
           /*
              If the process is killed, InterruptException will be thrown. It is good to return false.
              But it may not to commit sucessfully. Need a better solution.
@@ -206,10 +236,143 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
         return iter.hasNext();
       }
 
+      private long base62Decode(String base62) throws IllegalArgumentException
+      {
+        StringBuilder sb = new StringBuilder(base62).reverse();
+        long number = 0, base = 1;
+        for (char c : sb.toString().toCharArray()) {
+          int index = BASE62_ALPHABET.indexOf(c);
+          if (-1 == index) {
+            throw new IllegalArgumentException("Invalid base 62 string.");
+          }
+          number += index * base;
+          base *= 62;
+        }
+        return number;
+      }
+
+      private InputRow parseAdMonitorRow(ByteBuffer byteBufferInput)
+      {
+        String str = getString(byteBufferInput);
+        Map<String, Object> map = new LinkedHashMap<>();
+        String[] split = StringUtils.split(str, '?');
+        String logType = null;
+        String tmpStr;
+        if (split.length > 1) {
+          str = split[split.length - 1];
+          tmpStr = split[split.length - 2];
+          if (tmpStr.endsWith("x.gif")) {
+            logType = "imp";
+          } else if (tmpStr.endsWith("r.gif")) {
+            logType = "clk";
+          }
+        }
+        if (logType == null) {
+          throw new ParseException("Unparseable logType found!");
+        }
+
+        // 获取ip
+        int i = str.lastIndexOf(" ");
+        map.put("ip", str.substring(i + 1));
+        str = str.substring(0, i);
+
+        split = StringUtils.split(str, '^');
+        for (String s : split) {
+          String[] tmpSplit = StringUtils.split(s, '=');
+          if (tmpSplit.length > 1) {
+            map.put(tmpSplit[0], tmpSplit[1]);
+          }
+        }
+
+        boolean isStable = !map.containsKey("e");
+        if (!isStable) {
+          String e = (String) map.get("e");
+          if (e.contains("__") || e.endsWith("_m") ||
+              (map.containsKey("av") && ((String) map.get("av")).startsWith("1"))) {
+            isStable = true;
+          }
+        }
+
+        tmpStr = (String) map.get("k");
+        if (StringUtils.isBlank(tmpStr)) {
+          throw new ParseException("Unparseable campaign found!");
+        }
+        map.put("campaign_id", tmpStr);
+        tmpStr = (String) map.get("p");
+        if (StringUtils.isBlank(tmpStr)) {
+          throw new ParseException("Unparseable spid found!");
+        }
+        map.put("spot_id", tmpStr);
+        try {
+          map.put("spot_id_10", String.valueOf(base62Decode(tmpStr)));
+        }
+        catch (Exception e) {
+          map.put("spot_id_10", DEFAULT_VALUE);
+        }
+        map.put("stable_imp", isStable ? ("imp".equals(logType) ? 1 : 0) : 0);
+        map.put("stable_clk", isStable ? ("clk".equals(logType) ? 1 : 0) : 0);
+        map.put("imp", "imp".equals(logType) ? 1 : 0);
+        map.put("clk", "clk".equals(logType) ? 1 : 0);
+        map.put("timestamp", map.get("smt"));
+        IpUtil.IpSegment ipSegment = null;
+        try {
+          ipSegment = IpUtil.searchIp((String) map.get("ip"));
+        }
+        catch (Exception e) {
+          log.info("Unparseable ip [%s]", map.get("ip"));
+        }
+        if (ipSegment == null) {
+          map.put("region_id", DEFAULT_VALUE);
+          map.put("region_city", DEFAULT_VALUE);
+          map.put("region_province", DEFAULT_VALUE);
+        } else {
+          map.put("region_id", ipSegment.region);
+          map.put("region_city", ipSegment.city);
+          map.put("region_province", ipSegment.province);
+        }
+
+        // IES处理
+        map.put("ies_id", map.getOrDefault("ni", DEFAULT_VALUE));
+
+        // 假设此处解析完成
+        final List<String> dimensions = parseSpec.getDimensionsSpec().hasCustomDimensions()
+                                        ? parseSpec.getDimensionsSpec().getDimensionNames()
+                                        : Lists.newArrayList(
+                                            Sets.difference(
+                                                map.keySet(),
+                                                parseSpec.getDimensionsSpec()
+                                                         .getDimensionExclusions()
+                                            )
+                                        );
+
+        final DateTime timestamp;
+        try {
+          timestamp = parseSpec.getTimestampSpec().extractTimestamp(map);
+          if (timestamp == null) {
+            final String input = map.toString();
+            throw new NullPointerException(
+                io.druid.java.util.common.StringUtils.format(
+                    "Null timestamp in input: %s",
+                    input.length() < 100 ? input : input.substring(0, 100) + "..."
+                )
+            );
+          }
+        }
+        catch (Exception e) {
+          throw new ParseException(e, "Unparseable timestamp found!");
+        }
+
+        return new MapBasedInputRow(timestamp.getMillis(), dimensions, map);
+      }
+
       @Override
       public InputRow nextRow()
       {
-        return theParser.parse(iter.next());
+        if (isAdmonitorMode) {
+          return parseAdMonitorRow(iter.next());
+        } else {
+          return theParser.parse(iter.next());
+        }
       }
 
       @Override
