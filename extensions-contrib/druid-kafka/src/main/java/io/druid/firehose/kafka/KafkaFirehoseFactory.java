@@ -273,6 +273,9 @@ public class KafkaFirehoseFactory implements FirehoseFactory<ByteBufferInputRowP
 
         // 获取ip
         int i = str.lastIndexOf(" ");
+        if (i < 0) {
+          throw new ParseException("Unparseable ip found!");
+        }
         map.put("ip", str.substring(i + 1));
         str = str.substring(0, i);
 
